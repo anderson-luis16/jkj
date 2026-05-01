@@ -1,9 +1,17 @@
 from flask import Flask, request, jsonify
 import sqlite3
 from datetime import datetime, timedelta
+import os
 
 app = Flask(__name__)
-DB = "saas.db"
+
+# ================= HOME =================
+@app.route("/")
+def home():
+    return "API SaaS online funcionando 🚀"
+
+# ================= DB (Render-safe) =================
+DB = "/tmp/saas.db"
 
 def db():
     conn = sqlite3.connect(DB)
@@ -29,8 +37,11 @@ init()
 @app.route("/create", methods=["POST"])
 def create():
     data = request.json
-    key = data["key"]
+    key = data.get("key")
     days = data.get("days", 0)
+
+    if not key:
+        return jsonify({"status": "error", "msg": "missing key"})
 
     expires = None
     if days > 0:
@@ -53,8 +64,11 @@ def create():
 @app.route("/validate", methods=["POST"])
 def validate():
     data = request.json
-    key = data["key"]
-    hwid = data["hwid"]
+    key = data.get("key")
+    hwid = data.get("hwid")
+
+    if not key or not hwid:
+        return jsonify({"status": "error"})
 
     conn = db()
     c = conn.cursor()
@@ -69,9 +83,8 @@ def validate():
     if active == 0:
         return jsonify({"status": "blocked"})
 
-    if expires:
-        if datetime.now().strftime("%Y-%m-%d") > expires:
-            return jsonify({"status": "expired"})
+    if expires and datetime.now().strftime("%Y-%m-%d") > expires:
+        return jsonify({"status": "expired"})
 
     if db_hwid == "" or db_hwid == hwid:
         c.execute("UPDATE licenses SET hwid=? WHERE key=?", (hwid, key))
@@ -80,7 +93,7 @@ def validate():
 
     return jsonify({"status": "wrong_device"})
 
-# ================= ADMIN LIST =================
+# ================= LIST (ADMIN) =================
 @app.route("/list", methods=["GET"])
 def list_keys():
     conn = db()
@@ -91,13 +104,16 @@ def list_keys():
 # ================= BLOCK =================
 @app.route("/block", methods=["POST"])
 def block():
-    key = request.json["key"]
+    key = request.json.get("key")
+
     conn = db()
     c = conn.cursor()
     c.execute("UPDATE licenses SET active=0 WHERE key=?", (key,))
     conn.commit()
+
     return jsonify({"status": "blocked"})
 
-# ================= RUN =================
+# ================= RENDER ENTRY =================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
